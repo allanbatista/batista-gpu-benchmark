@@ -1,0 +1,43 @@
+[package]
+name = "batista-gpu-benchmark"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Cross-platform GPU benchmark built on Bevy + wgpu"
+
+[dependencies]
+# No default features: skips gamepad (libudev) and audio (alsa) — not needed for a GPU
+# benchmark and they drag system deps on Linux. Composed from bevy's umbrella features.
+bevy = { version = "0.19", default-features = false, features = [
+    "default_app",       # asset, log, state, async executor, reflection
+    "3d_bevy_render",    # render, core_pipeline, pbr, gltf, anti_alias, post_process, gizmos
+    "scene",             # bevy_world_serialization (GLB scene instancing)
+    "picking",           # bevy_egui routes pointer input through bevy_picking
+    "std",
+    "multi_threaded",
+    "bevy_winit",
+    "custom_cursor",
+    "x11",
+    "wayland",
+    "sysinfo_plugin",
+    "tonemapping_luts",
+    "smaa_luts",
+    "ktx2",
+    "zstd_rust",
+    "png",
+] }
+bevy_egui = "0.41"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+sysinfo = "0.39"
+chrono = "0.4"
+
+[features]
+default = []
+# Requires the NVIDIA DLSS SDK at build time (env DLSS_SDK) — see README. Never built in CI.
+dlss = ["bevy/dlss"]
+
+[profile.release]
+lto = "thin"
