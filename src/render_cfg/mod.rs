@@ -1,11 +1,20 @@
 //! Runtime graphics capabilities + applying display settings + manual FPS limiter.
 
+use bevy::anti_alias::fxaa::Fxaa;
+use bevy::anti_alias::smaa::Smaa;
+use bevy::anti_alias::taa::TemporalAntiAliasing;
+use bevy::camera::primitives::Aabb;
+use bevy::core_pipeline::tonemapping::Tonemapping;
+use bevy::light::{DirectionalLightShadowMap, PointLightShadowMap};
+use bevy::pbr::wireframe::WireframeConfig;
+use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
 use bevy::render::renderer::{RenderAdapterInfo, RenderDevice};
 use bevy::window::{MonitorSelection, PresentMode, PrimaryWindow, VideoModeSelection, WindowMode};
 
 use crate::app::AppSettings;
-use crate::config::WindowModeSetting;
+use crate::config::{AaMode, TonemappingSetting, WindowModeSetting};
+use crate::scene::BenchCamera;
 
 /// What the current adapter/backend actually supports. UI disables (never hides)
 /// unsupported options based on this (spec §16/§18).
@@ -33,8 +42,133 @@ pub struct RenderCfgPlugin;
 impl Plugin for RenderCfgPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Capabilities>()
-            .add_systems(Update, (capture_capabilities, apply_display_settings))
+            .init_resource::<PointLightShadowMap>()
+            .init_resource::<DirectionalLightShadowMap>()
+            .add_systems(
+                Update,
+                (capture_capabilities, apply_display_settings, apply_camera_settings, draw_aabb_gizmos),
+            )
             .add_systems(Last, fps_limiter);
+    }
+}
+
+/// Everything that maps settings → camera components / global render resources.
+#[derive(PartialEq, Clone)]
+struct CameraCfgKey {
+    aa: AaMode,
+    bloom: f32,
+    hdr: bool,
+    tonemapping: TonemappingSetting,
+    render_scale: f32,
+    shadow_map_size: u32,
+    wireframe: bool,
+    window: UVec2,
+    caps_ready: bool,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_camera_settings(
+    settings: Res<AppSettings>,
+    caps: Res<Capabilities>,
+    cameras: Query<Entity, With<BenchCamera>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    mut commands: Commands,
+    mut wireframe: ResMut<WireframeConfig>,
+    mut point_map: ResMut<PointLightShadowMap>,
+    mut dir_map: ResMut<DirectionalLightShadowMap>,
+    mut key: Local<Option<CameraCfgKey>>,
+) {
+    let r = &settings.0.renderer;
+    let window_size = windows
+        .single()
+        .map(|w| {
+            let s = w.resolution.physical_size();
+            UVec2::new(s.x, s.y)
+        })
+        .unwrap_or(UVec2::new(1920, 1080));
+    let new_key = CameraCfgKey {
+        aa: r.aa,
+        bloom: r.bloom,
+        hdr: r.hdr,
+        tonemapping: r.tonemapping,
+        render_scale: r.render_scale,
+        shadow_map_size: r.shadow_map_size,
+        wireframe: r.wireframe,
+        window: window_size,
+        caps_ready: caps.ready,
+    };
+    if key.as_ref() == Some(&new_key) {
+        return;
+    }
+    *key = Some(new_key);
+
+    let Ok(camera) = cameras.single() else { return };
+    let mut entity = commands.entity(camera);
+    entity.remove::<(Fxaa, Smaa, TemporalAntiAliasing, Bloom, bevy::camera::MainPassResolutionOverride)>();
+
+    let msaa = match r.aa {
+        AaMode::Msaa2 => Msaa::Sample2,
+        AaMode::Msaa4 => Msaa::Sample4,
+        AaMode::Msaa8 if !caps.ready || caps.max_msaa >= 8 => Msaa::Sample8,
+        AaMode::Msaa8 => Msaa::Sample4, // clamped; reported as achieved value
+        _ => Msaa::Off,
+    };
+    entity.insert(msaa);
+    match r.aa {
+        AaMode::Fxaa => {
+            entity.insert(Fxaa::default());
+        }
+        AaMode::Smaa => {
+            entity.insert(Smaa::default());
+        }
+        AaMode::Taa => {
+            entity.insert(TemporalAntiAliasing::default());
+        }
+        // DLSS/FSR1 land with the advanced feature set; selector entries stay gated until then.
+        _ => {}
+    }
+
+    if r.hdr {
+        entity.insert(bevy::camera::Hdr);
+    } else {
+        entity.remove::<bevy::camera::Hdr>();
+    }
+    if r.bloom > 0.0 {
+        entity.insert(Bloom { intensity: r.bloom, ..Bloom::NATURAL });
+    }
+    entity.insert(match r.tonemapping {
+        TonemappingSetting::None => Tonemapping::None,
+        TonemappingSetting::Reinhard => Tonemapping::Reinhard,
+        TonemappingSetting::AcesFitted => Tonemapping::AcesFitted,
+        TonemappingSetting::AgX => Tonemapping::AgX,
+        TonemappingSetting::TonyMcMapface => Tonemapping::TonyMcMapface,
+        TonemappingSetting::BlenderFilmic => Tonemapping::BlenderFilmic,
+        TonemappingSetting::KhronosPbrNeutral => Tonemapping::KhronosPbrNeutral,
+    });
+
+    if r.render_scale < 1.0 {
+        let scaled = (window_size.as_vec2() * r.render_scale).as_uvec2().max(UVec2::ONE);
+        entity.insert(bevy::camera::MainPassResolutionOverride(scaled));
+    }
+
+    wireframe.global = r.wireframe && caps.wireframe;
+    point_map.size = r.shadow_map_size as usize;
+    dir_map.size = r.shadow_map_size as usize;
+}
+
+fn draw_aabb_gizmos(
+    settings: Res<AppSettings>,
+    mut gizmos: Gizmos,
+    query: Query<(&Aabb, &GlobalTransform), With<Mesh3d>>,
+) {
+    if !settings.0.renderer.show_aabb {
+        return;
+    }
+    for (aabb, gt) in &query {
+        let transform = gt.compute_transform()
+            * Transform::from_translation(Vec3::from(aabb.center))
+                .with_scale(Vec3::from(aabb.half_extents) * 2.0);
+        gizmos.cube(transform, Color::srgb(0.2, 1.0, 0.4));
     }
 }
 

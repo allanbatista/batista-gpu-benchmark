@@ -3,6 +3,7 @@ mod bench;
 mod config;
 mod platform;
 mod render_cfg;
+mod scene;
 mod ui;
 
 use bevy::app::AppExit;

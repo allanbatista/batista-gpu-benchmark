@@ -64,8 +64,14 @@ pub fn run(settings: Settings, run: RunOptions) -> AppExit {
             .set(LogPlugin {
                 filter: log_filter.into(),
                 ..default()
+            })
+            // Allows --model to load a GLB from any filesystem path.
+            .set(bevy::asset::AssetPlugin {
+                unapproved_path_mode: bevy::asset::UnapprovedPathMode::Allow,
+                ..default()
             }),
     );
+    app.add_plugins(bevy::pbr::wireframe::WireframePlugin::default());
 
     // Keep rendering continuously, focused or not (benchmark must not throttle).
     app.insert_resource(WinitSettings {
@@ -74,10 +80,49 @@ pub fn run(settings: Settings, run: RunOptions) -> AppExit {
     });
 
     app.add_plugins(FrameTimeDiagnosticsPlugin::default());
-    app.add_plugins((crate::bench::BenchPlugin, crate::render_cfg::RenderCfgPlugin, crate::ui::UiPlugin));
-    app.add_systems(Update, save_dirty_settings);
+    app.add_plugins((
+        crate::bench::BenchPlugin,
+        crate::scene::ScenePlugin,
+        crate::render_cfg::RenderCfgPlugin,
+        crate::ui::UiPlugin,
+    ));
+    app.add_systems(Update, (save_dirty_settings, debug_screenshot));
 
     app.run()
+}
+
+/// Hidden dev aid: captures the scene to a PNG a few seconds in, then exits.
+/// Also exercises the Screenshot plumbing the report generator reuses.
+fn debug_screenshot(
+    run: Res<RunOpts>,
+    clock: Res<crate::scene::orbits::BenchClock>,
+    metrics: Res<crate::scene::SceneMetrics>,
+    mut commands: Commands,
+    mut exit: MessageWriter<AppExit>,
+    mut ready_at: Local<Option<f64>>,
+    mut taken: Local<bool>,
+) {
+    let Some(path) = run.0.debug_screenshot.clone() else { return };
+    if metrics.ready && ready_at.is_none() {
+        *ready_at = Some(clock.t);
+    }
+    match *ready_at {
+        Some(t0) => {
+            if clock.t > t0 + 2.0 && !*taken {
+                *taken = true;
+                use bevy::render::view::screenshot::{Screenshot, save_to_disk};
+                commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+            }
+            if clock.t > t0 + 4.0 {
+                exit.write(AppExit::Success);
+            }
+        }
+        // Scene never became ready (e.g. model failed to load): bail out.
+        None if clock.t > 25.0 => {
+            exit.write(AppExit::from_code(1));
+        }
+        None => {}
+    }
 }
 
 fn main_window(s: &Settings) -> Window {

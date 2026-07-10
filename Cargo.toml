@@ -25,6 +25,7 @@ bevy = { version = "0.19", default-features = false, features = [
     "ktx2",
     "zstd_rust",
     "png",
+    "jpeg",              # GLB models commonly embed JPEG textures (DamagedHelmet does)
 ] }
 bevy_egui = "0.41"
 clap = { version = "4", features = ["derive"] }

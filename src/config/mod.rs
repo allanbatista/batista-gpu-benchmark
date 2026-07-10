@@ -540,6 +540,9 @@ pub struct Cli {
     /// List GPU adapters and exit.
     #[arg(long)]
     pub list_adapters: bool,
+    /// Dev aid: save a scene screenshot to this path after a few seconds and exit.
+    #[arg(long, hide = true)]
+    pub debug_screenshot: Option<PathBuf>,
 }
 
 /// Runtime options that are not persisted in settings.toml.
@@ -549,6 +552,7 @@ pub struct RunOptions {
     pub exit_after: bool,
     /// True when any CLI flag overrode persisted settings (report marks source).
     pub cli_overrides: bool,
+    pub debug_screenshot: Option<PathBuf>,
 }
 
 /// Merges CLI args over loaded settings. Errors are returned as user-facing strings.
@@ -638,6 +642,7 @@ pub fn merge_cli(settings: &mut Settings, cli: &Cli) -> Result<RunOptions, Strin
         autostart: cli.benchmark,
         exit_after: cli.exit_after_benchmark,
         cli_overrides: overrode,
+        debug_screenshot: cli.debug_screenshot.clone(),
     })
 }
 
