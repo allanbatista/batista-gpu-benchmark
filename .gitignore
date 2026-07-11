@@ -6,5 +6,6 @@
 /flatpak-repo
 /flatpak-build
 /.flatpak-builder
+/.serena/
 *.snap
 *.flatpak
