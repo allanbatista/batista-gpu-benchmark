@@ -10,7 +10,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use super::{BenchSession, BenchState, metrics};
-use crate::app::{AppSettings, RunOpts};
+use crate::app::RunOpts;
 use crate::config::{self, APP_VERSION, BEVY_VERSION, SCORE_ALGORITHM};
 use crate::render_cfg::Capabilities;
 use crate::ui::system_info::SystemInfo;
@@ -19,11 +19,12 @@ use crate::ui::system_info::SystemInfo;
 pub fn write_when_completed(
     state: Res<State<BenchState>>,
     mut session: ResMut<BenchSession>,
-    settings: Res<AppSettings>,
+    run_opts: Res<RunOpts>,
     caps: Res<Capabilities>,
     sysinfo: Res<SystemInfo>,
     windows: Query<&Window, With<PrimaryWindow>>,
     monitors: Query<&bevy::window::Monitor>,
+    telemetry: Res<crate::platform::telemetry::Telemetry>,
 ) {
     if *state.get() != BenchState::Completed || session.report_written {
         return;
@@ -120,6 +121,11 @@ pub fn write_when_completed(
         },
         "renderer": {
             "backend_setting": format!("{:?}", plan.settings.renderer.backend),
+            "mode": match plan.settings.renderer.render_mode {
+                crate::config::RenderModeSetting::Pbr => "pbr-v1",
+                crate::config::RenderModeSetting::RtExperimental => "rt-experimental-v1",
+            },
+            "experimental": plan.settings.renderer.render_mode != crate::config::RenderModeSetting::Pbr,
             "aa": format!("{:?}", plan.settings.renderer.aa),
             "render_scale": plan.settings.renderer.render_scale,
             "bloom": plan.settings.renderer.bloom,
@@ -149,17 +155,31 @@ pub fn write_when_completed(
             "prewarm_frames": session.prewarm_frames,
             "prewarm_seconds": (session.prewarm_seconds * 1000.0).round() / 1000.0,
             "focus_lost": session.focus_lost,
+            "cli_overrides": run_opts.0.cli_overrides,
             "official": deviations.is_empty(),
             "deviations": deviations,
             "build": if cfg!(debug_assertions) { "debug" } else { "release" },
         },
-        "gpu_timing": "unavailable",
+        "gpu_timing": if session.records.iter().any(|r| r.gpu.is_some()) {
+            json!({
+                "supported": true,
+                "source": "wgpu TIMESTAMP_QUERY via RenderDiagnosticsPlugin",
+                "note": "per-run averages are authoritative; per-frame gpu_time_ms rows lag by 1-3 frames",
+            })
+        } else {
+            json!("unavailable")
+        },
+        "telemetry": match telemetry.aggregate() {
+            Some(t) => serde_json::to_value(t).unwrap_or_else(|_| json!("unavailable")),
+            None => json!("unavailable"),
+        },
         "metrics": consolidated,
         "runs": session.records.iter().map(|r| json!({
             "index": r.index,
             "canceled": r.canceled,
             "truncated": r.truncated,
             "metrics": r.metrics,
+            "gpu": r.gpu,
         })).collect::<Vec<_>>(),
     });
 

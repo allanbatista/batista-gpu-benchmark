@@ -3,6 +3,8 @@ mod bench;
 mod config;
 mod platform;
 mod render_cfg;
+#[cfg(feature = "rt-experimental")]
+mod rt;
 mod scene;
 mod ui;
 
@@ -14,8 +16,7 @@ fn main() -> ExitCode {
     let cli = config::Cli::parse();
 
     if cli.list_adapters {
-        eprintln!("--list-adapters is not implemented yet (coming with the CLI milestone)");
-        return ExitCode::from(1);
+        return list_adapters();
     }
 
     let mut settings = config::Settings::load();
@@ -27,12 +28,64 @@ fn main() -> ExitCode {
         }
     };
 
+    // `--adapter <index>` → resolve to the adapter's name via a wgpu probe
+    // (wgpu itself only selects by name substring).
+    if let Some(index) = settings.renderer.adapter.as_ref().and_then(|a| a.parse::<usize>().ok()) {
+        let adapters = enumerate_adapters(probe_backends(settings.renderer.backend));
+        match adapters.get(index) {
+            Some(info) => {
+                println!("adapter [{index}] resolved to: {}", info.name);
+                settings.renderer.adapter = Some(info.name.clone());
+            }
+            None => {
+                eprintln!("error: adapter index {index} out of range ({} found — see --list-adapters)", adapters.len());
+                return ExitCode::from(2);
+            }
+        }
+    }
+
     install_panic_hook();
 
     match app::run(settings, run) {
         AppExit::Success => ExitCode::SUCCESS,
         AppExit::Error(code) => ExitCode::from(code.get()),
     }
+}
+
+fn probe_backends(setting: config::BackendSetting) -> wgpu::Backends {
+    match setting {
+        config::BackendSetting::Auto => wgpu::Backends::PRIMARY | wgpu::Backends::GL,
+        config::BackendSetting::Vulkan => wgpu::Backends::VULKAN,
+        config::BackendSetting::Dx12 => wgpu::Backends::DX12,
+        config::BackendSetting::Metal => wgpu::Backends::METAL,
+        config::BackendSetting::Gl => wgpu::Backends::GL,
+    }
+}
+
+fn enumerate_adapters(backends: wgpu::Backends) -> Vec<wgpu::AdapterInfo> {
+    let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
+    desc.backends = backends;
+    let instance = wgpu::Instance::new(desc);
+    bevy::tasks::block_on(instance.enumerate_adapters(backends))
+        .iter()
+        .map(|a| a.get_info())
+        .collect()
+}
+
+fn list_adapters() -> ExitCode {
+    let adapters = enumerate_adapters(wgpu::Backends::all());
+    if adapters.is_empty() {
+        eprintln!("no GPU adapters found");
+        return ExitCode::from(1);
+    }
+    println!("{} adapter(s):", adapters.len());
+    for (i, info) in adapters.iter().enumerate() {
+        println!(
+            "[{i}] {} — {:?} ({:?}) driver: {} {}",
+            info.name, info.backend, info.device_type, info.driver, info.driver_info
+        );
+    }
+    ExitCode::SUCCESS
 }
 
 /// Friendly message for unrecoverable graphics failures (spec §16): bevy panics

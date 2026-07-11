@@ -28,6 +28,7 @@ pub fn panels_ui(
     mut exit: MessageWriter<AppExit>,
     mut start: MessageWriter<StartBenchmark>,
     mut session: ResMut<BenchSession>,
+    mut compare: ResMut<crate::ui::results::CompareCache>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
     if state.get().is_benchmarking() {
@@ -55,6 +56,9 @@ pub fn panels_ui(
                 section(ui, "Scene", |ui| scene_section(ui, &mut edited));
                 section(ui, "Benchmark", |ui| benchmark_section(ui, &mut edited, &mut start));
                 section(ui, "Results", |ui| crate::ui::results::draw(ui, &mut session));
+                section(ui, "Compare", |ui| {
+                    crate::ui::results::draw_compare(ui, &mut compare, &edited.benchmark.output_dir)
+                });
                 section(ui, "System info", |ui| system_info::draw(ui, &sysinfo, &caps));
 
                 if let Some(e) = &io.last_save_error {
@@ -70,7 +74,8 @@ pub fn panels_ui(
 
     let restart_needed = edited.renderer.backend != startup.backend
         || edited.renderer.adapter != startup.adapter
-        || edited.renderer.power_preference != startup.power;
+        || edited.renderer.power_preference != startup.power
+        || edited.renderer.render_mode != startup.render_mode;
     if restart_needed {
         egui::Panel::bottom("restart-bar").show(&mut root, |ui| {
             ui.horizontal(|ui| {
@@ -165,15 +170,49 @@ fn renderer_section(ui: &mut egui::Ui, s: &mut Settings, caps: &Capabilities) {
         .selected_text(r.backend.label())
         .show_ui(ui, |ui| {
             for b in BackendSetting::all() {
-                let enabled = b.available_on_this_os();
+                let (enabled, reason) = if !b.available_on_this_os() {
+                    (false, "Not available on this OS")
+                } else if b == BackendSetting::Gl {
+                    (false, "Not supported by Bevy 0.19 (engine cannot create a GL surface)")
+                } else {
+                    (true, "")
+                };
                 ui.add_enabled_ui(enabled, |ui| {
-                    ui.selectable_value(&mut r.backend, b, b.label())
-                        .on_disabled_hover_text("Not available on this OS");
+                    ui.selectable_value(&mut r.backend, b, b.label()).on_disabled_hover_text(reason);
                 });
             }
         });
     if caps.ready {
         ui.label(format!("Active API: {} — {}", caps.backend, caps.adapter_name));
+    }
+
+    let rt_available = cfg!(feature = "rt-experimental") && caps.rt_supported;
+    let rt_reason = if cfg!(feature = "rt-experimental") {
+        "GPU lacks ray-query support (Vulkan RT required)"
+    } else {
+        "This build was compiled without rt-experimental"
+    };
+    egui::ComboBox::from_label("Render mode")
+        .selected_text(match r.render_mode {
+            crate::config::RenderModeSetting::Pbr => "PBR (rasterized)",
+            crate::config::RenderModeSetting::RtExperimental => "Ray traced (experimental)",
+        })
+        .show_ui(ui, |ui| {
+            ui.selectable_value(&mut r.render_mode, crate::config::RenderModeSetting::Pbr, "PBR (rasterized)");
+            ui.add_enabled_ui(rt_available, |ui| {
+                ui.selectable_value(
+                    &mut r.render_mode,
+                    crate::config::RenderModeSetting::RtExperimental,
+                    "Ray traced (experimental)",
+                )
+                .on_disabled_hover_text(rt_reason);
+            });
+        });
+    if r.render_mode == crate::config::RenderModeSetting::RtExperimental {
+        ui.label(
+            egui::RichText::new("⚠ experimental: Vulkan-only, replaces shadow mapping, results are never comparable")
+                .color(egui::Color32::YELLOW),
+        );
     }
 
     egui::ComboBox::from_label("Power preference")
@@ -203,6 +242,19 @@ fn renderer_section(ui: &mut egui::Ui, s: &mut Settings, caps: &Capabilities) {
                 });
             }
         });
+    if r.aa == AaMode::Fsr1 {
+        egui::ComboBox::from_label("FSR 1.0 quality")
+            .selected_text(r.fsr1_quality.label())
+            .show_ui(ui, |ui| {
+                for q in crate::config::Fsr1Quality::all() {
+                    ui.selectable_value(&mut r.fsr1_quality, q, q.label());
+                }
+            });
+        ui.label(egui::RichText::new("FSR1-style: low-res render + AMD CAS sharpening (upscaler runs are never comparable)").weak());
+    }
+    if r.aa.is_upscaler() {
+        ui.label(egui::RichText::new("⚠ upscalers mark the run as non-comparable").weak());
+    }
 
     ui.add(egui::Slider::new(&mut r.render_scale, 0.25..=1.0).text("Render scale"));
     ui.add(egui::Slider::new(&mut r.bloom, 0.0..=0.5).text("Bloom intensity (0 = off)"));
@@ -246,7 +298,6 @@ fn aa_available(mode: AaMode, caps: &Capabilities) -> (bool, &'static str) {
                 (false, "This build was compiled without DLSS support")
             }
         }
-        AaMode::Fsr1 => (false, "FSR 1.0 upscaler lands with the advanced feature set"),
         _ => (true, ""),
     }
 }

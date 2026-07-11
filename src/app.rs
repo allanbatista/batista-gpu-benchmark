@@ -23,6 +23,7 @@ pub struct StartupRenderCfg {
     pub backend: BackendSetting,
     pub adapter: Option<String>,
     pub power: PowerPrefSetting,
+    pub render_mode: crate::config::RenderModeSetting,
 }
 
 /// Debounced settings persistence state.
@@ -43,10 +44,17 @@ pub fn run(settings: Settings, run: RunOptions) -> AppExit {
         "info,wgpu=error,naga=warn,bevy_render=info"
     };
 
+    // NVIDIA requires a per-app DLSS project id, inserted before DefaultPlugins.
+    #[cfg(feature = "dlss")]
+    app.insert_resource(bevy::anti_alias::dlss::DlssProjectId(uuid::Uuid::from_u128(
+        0xb471_57ba_0b54_4d10_a3a2_6a2c_2b4e_9d01,
+    )));
+
     app.insert_resource(StartupRenderCfg {
         backend: settings.renderer.backend,
         adapter: settings.renderer.adapter.clone(),
         power: settings.renderer.power_preference,
+        render_mode: settings.renderer.render_mode,
     });
     app.insert_resource(AppSettings(settings.clone()));
     app.insert_resource(RunOpts(run));
@@ -80,7 +88,17 @@ pub fn run(settings: Settings, run: RunOptions) -> AppExit {
         unfocused_mode: UpdateMode::Continuous,
     });
 
+    #[cfg(feature = "rt-experimental")]
+    app.add_plugins(crate::rt::RtPlugin);
+
     app.add_plugins(FrameTimeDiagnosticsPlugin::default());
+    // CPU+GPU per-render-pass timing; GPU spans appear only when the adapter
+    // has TIMESTAMP_QUERY (bevy already requests all supported features).
+    app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
+    // Optional telemetry (spec §9.3): cpu/mem % + amdgpu sysfs, best-effort.
+    app.add_plugins(bevy::diagnostic::SystemInformationDiagnosticsPlugin);
+    app.init_resource::<crate::platform::telemetry::Telemetry>();
+    app.add_systems(Update, crate::platform::telemetry::poll);
     app.add_plugins((
         crate::bench::BenchPlugin,
         crate::scene::ScenePlugin,

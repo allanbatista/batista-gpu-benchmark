@@ -24,6 +24,7 @@ impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(EguiPlugin::default())
             .init_resource::<system_info::SystemInfo>()
+            .init_resource::<results::CompareCache>()
             .add_systems(EguiPrimaryContextPass, (panels::panels_ui, overlay::overlay_ui).chain());
     }
 }

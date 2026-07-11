@@ -1,5 +1,6 @@
 //! Runtime graphics capabilities + applying display settings + manual FPS limiter.
 
+use bevy::anti_alias::contrast_adaptive_sharpening::ContrastAdaptiveSharpening;
 use bevy::anti_alias::fxaa::Fxaa;
 use bevy::anti_alias::smaa::Smaa;
 use bevy::anti_alias::taa::TemporalAntiAliasing;
@@ -32,6 +33,8 @@ pub struct Capabilities {
     pub wireframe: bool,
     /// Set in the advanced milestone when the DLSS feature detects an RTX+Vulkan adapter.
     pub dlss_supported: bool,
+    /// Adapter exposes the wgpu features bevy_solari needs (ray queries etc).
+    pub rt_supported: bool,
     pub max_msaa: u32,
     pub features: Vec<String>,
     pub limits: Vec<(String, String)>,
@@ -49,6 +52,19 @@ impl Plugin for RenderCfgPlugin {
                 (capture_capabilities, apply_display_settings, apply_camera_settings, draw_aabb_gizmos),
             )
             .add_systems(Last, fps_limiter);
+        #[cfg(feature = "dlss")]
+        app.add_systems(Update, detect_dlss);
+    }
+}
+
+#[cfg(feature = "dlss")]
+fn detect_dlss(
+    mut caps: ResMut<Capabilities>,
+    supported: Option<Res<bevy::anti_alias::dlss::DlssSuperResolutionSupported>>,
+) {
+    let available = supported.is_some();
+    if caps.dlss_supported != available {
+        caps.dlss_supported = available;
     }
 }
 
@@ -56,6 +72,7 @@ impl Plugin for RenderCfgPlugin {
 #[derive(PartialEq, Clone)]
 struct CameraCfgKey {
     aa: AaMode,
+    fsr1_quality: crate::config::Fsr1Quality,
     bloom: f32,
     hdr: bool,
     tonemapping: TonemappingSetting,
@@ -88,6 +105,7 @@ fn apply_camera_settings(
         .unwrap_or(UVec2::new(1920, 1080));
     let new_key = CameraCfgKey {
         aa: r.aa,
+        fsr1_quality: r.fsr1_quality,
         bloom: r.bloom,
         hdr: r.hdr,
         tonemapping: r.tonemapping,
@@ -104,7 +122,14 @@ fn apply_camera_settings(
 
     let Ok(camera) = cameras.single() else { return };
     let mut entity = commands.entity(camera);
-    entity.remove::<(Fxaa, Smaa, TemporalAntiAliasing, Bloom, bevy::camera::MainPassResolutionOverride)>();
+    entity.remove::<(
+        Fxaa,
+        Smaa,
+        TemporalAntiAliasing,
+        ContrastAdaptiveSharpening,
+        Bloom,
+        bevy::camera::MainPassResolutionOverride,
+    )>();
 
     let msaa = match r.aa {
         AaMode::Msaa2 => Msaa::Sample2,
@@ -124,7 +149,27 @@ fn apply_camera_settings(
         AaMode::Taa => {
             entity.insert(TemporalAntiAliasing::default());
         }
-        // DLSS/FSR1 land with the advanced feature set; selector entries stay gated until then.
+        AaMode::Fsr1 => {
+            // ponytail: FSR1-style = low-res main pass + bevy's bilinear upscale +
+            // AMD FidelityFX CAS sharpening. Full EASU edge reconstruction is the
+            // upgrade path if image quality ever warrants a custom pass.
+            entity.insert(ContrastAdaptiveSharpening {
+                enabled: true,
+                sharpening_strength: 0.6,
+                ..default()
+            });
+        }
+        #[cfg(feature = "dlss")]
+        AaMode::Dlss => {
+            if caps.dlss_supported {
+                entity.insert(bevy::anti_alias::dlss::Dlss::<
+                    bevy::anti_alias::dlss::DlssSuperResolutionFeature,
+                > {
+                    perf_quality_mode: bevy::anti_alias::dlss::DlssPerfQualityMode::Auto,
+                    ..default()
+                });
+            }
+        }
         _ => {}
     }
 
@@ -146,8 +191,10 @@ fn apply_camera_settings(
         TonemappingSetting::KhronosPbrNeutral => Tonemapping::KhronosPbrNeutral,
     });
 
-    if r.render_scale < 1.0 {
-        let scaled = (window_size.as_vec2() * r.render_scale).as_uvec2().max(UVec2::ONE);
+    // FSR1 drives its own internal resolution; otherwise the manual render scale applies.
+    let effective_scale = if r.aa == AaMode::Fsr1 { r.fsr1_quality.render_scale() } else { r.render_scale };
+    if effective_scale < 1.0 {
+        let scaled = (window_size.as_vec2() * effective_scale).as_uvec2().max(UVec2::ONE);
         entity.insert(bevy::camera::MainPassResolutionOverride(scaled));
     }
 
@@ -195,6 +242,10 @@ fn capture_capabilities(
     caps.device_id = info.device;
     caps.timestamp_query = features.contains(bevy::render::settings::WgpuFeatures::TIMESTAMP_QUERY);
     caps.wireframe = features.contains(bevy::render::settings::WgpuFeatures::POLYGON_MODE_LINE);
+    #[cfg(feature = "rt-experimental")]
+    {
+        caps.rt_supported = features.contains(bevy::solari::prelude::SolariPlugins::required_wgpu_features());
+    }
     // ponytail: wgpu has no direct "max MSAA" query; GL commonly caps at 4, others do 8.
     caps.max_msaa = if caps.backend.eq_ignore_ascii_case("gl") { 4 } else { 8 };
     caps.features = features.iter_names().map(|(name, _)| name.to_string()).collect();

@@ -123,6 +123,49 @@ impl AaMode {
     }
 }
 
+/// Rendering mode (spec §4): rasterized PBR is the official mode; ray tracing
+/// is experimental (bevy_solari), never comparable, and requires an RT build.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum RenderModeSetting {
+    #[default]
+    Pbr,
+    RtExperimental,
+}
+
+/// FSR 1.0 official per-dimension scale factors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Fsr1Quality {
+    UltraQuality,
+    #[default]
+    Quality,
+    Balanced,
+    Performance,
+}
+
+impl Fsr1Quality {
+    pub fn render_scale(self) -> f32 {
+        match self {
+            Self::UltraQuality => 1.0 / 1.3,
+            Self::Quality => 1.0 / 1.5,
+            Self::Balanced => 1.0 / 1.7,
+            Self::Performance => 1.0 / 2.0,
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::UltraQuality => "Ultra Quality (1.3x)",
+            Self::Quality => "Quality (1.5x)",
+            Self::Balanced => "Balanced (1.7x)",
+            Self::Performance => "Performance (2.0x)",
+        }
+    }
+    pub fn all() -> [Self; 4] {
+        [Self::UltraQuality, Self::Quality, Self::Balanced, Self::Performance]
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum TonemappingSetting {
@@ -208,7 +251,9 @@ pub struct RendererSettings {
     /// Adapter name substring (wgpu has no index-based selection).
     pub adapter: Option<String>,
     pub power_preference: PowerPrefSetting,
+    pub render_mode: RenderModeSetting,
     pub aa: AaMode,
+    pub fsr1_quality: Fsr1Quality,
     /// Internal 3D render scale, (0, 1]. 1.0 = native.
     pub render_scale: f32,
     pub shadows: bool,
@@ -228,7 +273,9 @@ impl Default for RendererSettings {
             backend: BackendSetting::Auto,
             adapter: None,
             power_preference: PowerPrefSetting::Auto,
+            render_mode: RenderModeSetting::Pbr,
             aa: AaMode::Msaa4,
+            fsr1_quality: Fsr1Quality::Quality,
             render_scale: 1.0,
             shadows: true,
             shadow_map_size: 2048,
@@ -450,6 +497,9 @@ pub fn official_deviations(s: &Settings) -> Vec<String> {
     if s.renderer.wireframe {
         dev.push("wireframe=on".into());
     }
+    if s.renderer.render_mode != RenderModeSetting::Pbr {
+        dev.push("render_mode=rt-experimental".into());
+    }
     if s.scene.seed != DEFAULT_SEED {
         dev.push(format!("seed={}", s.scene.seed));
     }
@@ -566,6 +616,15 @@ pub fn merge_cli(settings: &mut Settings, cli: &Cli) -> Result<RunOptions, Strin
                 backend.label(),
                 std::env::consts::OS
             ));
+        }
+        if backend == BackendSetting::Gl {
+            // Bevy 0.19 cannot create a GL surface (its surface fallback finds
+            // zero present modes) — fail clearly instead of panicking mid-init.
+            return Err(
+                "the OpenGL/GLES backend is not supported by Bevy 0.19 (the engine cannot \
+                 create a GL surface); use --backend vulkan or --backend auto"
+                    .into(),
+            );
         }
         settings.renderer.backend = backend;
         overrode = true;

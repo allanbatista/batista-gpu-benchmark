@@ -3,6 +3,7 @@
 //! Esc-cancel. One runner system owns all transitions; per-state entry work is
 //! detected via a cached previous-state field (no OnEnter plumbing).
 
+pub mod gpu_timing;
 pub mod metrics;
 pub mod report;
 pub mod sampler;
@@ -89,6 +90,7 @@ pub struct BenchPlan {
 pub struct RunRecord {
     pub index: u32,
     pub metrics: Option<RunMetrics>,
+    pub gpu: Option<gpu_timing::GpuAverages>,
     pub samples: Vec<FrameSample>,
     pub canceled: bool,
     pub truncated: bool,
@@ -129,10 +131,12 @@ impl Plugin for BenchPlugin {
             .init_resource::<BenchSession>()
             .init_resource::<Sampler>()
             .add_message::<StartBenchmark>()
+            .init_resource::<gpu_timing::GpuTiming>()
             .add_systems(
                 Update,
                 (
                     sampler::sample_frame,
+                    gpu_timing::collect,
                     runner,
                     watch_focus,
                     cancel_on_esc,
@@ -207,6 +211,7 @@ fn cancel_on_esc(
     session.records.push(RunRecord {
         index,
         metrics: None,
+        gpu: None,
         samples: samp.take(),
         canceled: true,
         truncated: false,
@@ -228,6 +233,8 @@ fn runner(
     scene: Res<SceneMetrics>,
     pipelines: Res<PipelinesReady>,
     mut last_error: ResMut<LastError>,
+    mut gpu: ResMut<gpu_timing::GpuTiming>,
+    mut telemetry: ResMut<crate::platform::telemetry::Telemetry>,
     time: Res<Time<Real>>,
     mut commands: Commands,
 ) {
@@ -247,6 +254,7 @@ fn runner(
                 session.prewarm_seconds = 0.0;
                 session.report_written = false;
                 session.report_error = None;
+                telemetry.reset();
                 let ts = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
                 // Created up-front so no directory IO happens during capture.
                 session.result_dir = report::create_result_dir(&settings.0.benchmark.output_dir, &ts);
@@ -262,6 +270,7 @@ fn runner(
             BenchState::Running => {
                 let duration = session.plan.as_ref().map(|p| p.duration_s).unwrap_or(60.0);
                 samp.begin(duration);
+                gpu.reset();
                 session.run_wall_start = Some(std::time::Instant::now());
             }
             _ => {}
@@ -344,6 +353,7 @@ fn runner(
             session.records.push(RunRecord {
                 index,
                 metrics: run_metrics,
+                gpu: gpu.averages(),
                 samples,
                 canceled: false,
                 truncated,

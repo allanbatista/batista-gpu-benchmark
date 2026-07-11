@@ -86,6 +86,7 @@ impl Plugin for ScenePlugin {
                     rebuild_lights,
                     free_cam_input,
                     (move_lights, move_camera),
+                    model_animation,
                     watch_asset_failures,
                 )
                     .chain(),
@@ -154,7 +155,60 @@ fn sync_model(
         }
     };
     commands.spawn((ModelRoot, WorldAssetRoot(handle)));
+    commands.insert_resource(CurrentModelPath(wanted.clone()));
     info!("loading model: {}", wanted.as_deref().unwrap_or(DEFAULT_MODEL));
+}
+
+/// Path of the model currently in the scene (None = bundled), for sub-asset loads.
+#[derive(Resource, Default)]
+pub struct CurrentModelPath(pub Option<String>);
+
+/// Optional model animation (spec §5.1/§7.4): plays the GLB's first clip when
+/// enabled and one exists; pauses when disabled. Never required by the model.
+fn model_animation(
+    settings: Res<AppSettings>,
+    metrics: Res<SceneMetrics>,
+    model_path: Option<Res<CurrentModelPath>>,
+    roots: Query<Entity, With<ModelRoot>>,
+    children: Query<&Children>,
+    mut players: Query<&mut AnimationPlayer>,
+    asset_server: Res<AssetServer>,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
+    mut commands: Commands,
+    mut wired: Local<bool>,
+    mut warned: Local<bool>,
+) {
+    if !metrics.ready {
+        *wired = false;
+        return;
+    }
+    let enabled = settings.0.scene.animate_model;
+    let Ok(root) = roots.single() else { return };
+
+    for entity in children.iter_descendants(root) {
+        let Ok(mut player) = players.get_mut(entity) else { continue };
+        if !enabled {
+            player.pause_all();
+            continue;
+        }
+        if !*wired {
+            *wired = true;
+            let clip: Handle<AnimationClip> = match model_path.as_deref() {
+                Some(CurrentModelPath(Some(path))) => asset_server
+                    .load(GltfAssetLabel::Animation(0).from_asset(std::path::PathBuf::from(path))),
+                _ => asset_server.load(GltfAssetLabel::Animation(0).from_asset(DEFAULT_MODEL)),
+            };
+            let (graph, node) = AnimationGraph::from_clip(clip);
+            commands.entity(entity).insert(AnimationGraphHandle(graphs.add(graph)));
+            player.play(node).repeat();
+        }
+        player.resume_all();
+        return;
+    }
+    if enabled && !*warned {
+        *warned = true;
+        info!("model animation enabled but this GLB has no animations");
+    }
 }
 
 /// Polls until mesh AABBs exist under the model root, then scales/centers the

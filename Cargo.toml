@@ -34,11 +34,20 @@ serde_json = "1"
 toml = "1"
 sysinfo = "0.39"
 chrono = "0.4"
+# Same wgpu bevy 0.19 uses. Direct dep for the pre-App --list-adapters probe,
+# and to turn the native GL/GLES backend on (bevy 0.19 doesn't enable it).
+wgpu = { version = "29", default-features = false, features = ["gles"] }
+
+[dependencies.uuid]
+version = "1"
+optional = true
 
 [features]
 default = []
 # Requires the NVIDIA DLSS SDK at build time (env DLSS_SDK) — see README. Never built in CI.
-dlss = ["bevy/dlss"]
+dlss = ["bevy/dlss", "dep:uuid"]
+# Experimental ray-traced lighting (bevy_solari). Vulkan + RT-capable GPU only.
+rt-experimental = ["bevy/bevy_solari"]
 
 [profile.release]
 lto = "thin"

@@ -1,5 +1,7 @@
 //! Small OS helpers: open a directory in the file manager, respawn the app.
 
+pub mod telemetry;
+
 use std::path::Path;
 
 pub fn open_dir(path: &Path) {
