@@ -13,7 +13,6 @@ it will return when the engine regains native GL support.
 ## Quick start
 
 ```bash
-./scripts/fetch-model.sh     # downloads the default model (once)
 cargo run --release          # interactive mode with settings UI
 ```
 
@@ -131,14 +130,13 @@ Notes:
 - Reports are always marked `experimental` + `custom`; results are not
   comparable across systems or with the PBR mode (spec §4.2).
 
-## Replacing the default model
+## The benchmark model
 
-The bundled `assets/models/benchmark.glb` is the Khronos **Damaged Helmet**
-sample (CC BY 4.0 — see `assets/models/ATTRIBUTION.md`), used as a placeholder.
-Replace the file with any GLB, or pass `--model <path>`. The model is
-auto-scaled and grounded via its bounding box; models with PBR textures,
-metallic and non-metallic parts and normal maps make the most representative
-workload. Runs with a non-bundled model are marked custom.
+The bundled `assets/models/benchmark.glb` is the official workload model
+("Astronaut in a White Suit" — see `assets/models/ATTRIBUTION.md`). Comparable
+runs must use it (spec: same model, same preset version, same seed). You can
+still load any GLB with `--model <path>` — the model is auto-scaled and
+grounded via its bounding box — but such runs are reported as `custom`.
 
 ## Building
 

@@ -116,7 +116,7 @@ pub fn derive_lights(input: &LightDeriveInput) -> Vec<LightParams> {
             let intensity_jitter = rng.range(0.8, 1.2) as f32;
             let light_radius = rng.range(0.02, 0.12) as f32;
 
-            let base_intensity = if spot { 950_000.0 } else { 380_000.0 };
+            let base_intensity = if spot { 620_000.0 } else { 250_000.0 };
             let type_shadows_on = if spot { input.spot_shadows } else { input.point_shadows };
             LightParams {
                 kind,
