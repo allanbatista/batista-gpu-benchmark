@@ -20,13 +20,14 @@ fn main() -> ExitCode {
     }
 
     let mut settings = config::Settings::load();
-    let run = match config::merge_cli(&mut settings, &cli) {
+    let mut run = match config::merge_cli(&mut settings, &cli) {
         Ok(run) => run,
         Err(e) => {
             eprintln!("error: {e}");
             return ExitCode::from(2);
         }
     };
+    run.asset_root = resolve_asset_root();
 
     // `--adapter <index>` → resolve to the adapter's name via a wgpu probe
     // (wgpu itself only selects by name substring).
@@ -50,6 +51,26 @@ fn main() -> ExitCode {
         AppExit::Success => ExitCode::SUCCESS,
         AppExit::Error(code) => ExitCode::from(code.get()),
     }
+}
+
+/// Finds the assets dir across layouts: portable (next to the exe), FHS
+/// installs (<prefix>/share/batista-gpu-benchmark/assets — deb/rpm/AppImage/
+/// snap/flatpak) and the dev tree (cwd). None keeps bevy's default resolution.
+fn resolve_asset_root() -> Option<String> {
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        candidates.push(dir.join("assets"));
+        candidates.push(dir.join("../share/batista-gpu-benchmark/assets"));
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(cwd.join("assets"));
+    }
+    candidates
+        .into_iter()
+        .find(|c| c.join("models/benchmark.glb").is_file())
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 fn probe_backends(setting: config::BackendSetting) -> wgpu::Backends {

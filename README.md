@@ -1,14 +1,57 @@
 # batista-gpu-benchmark
 
+[![build](https://github.com/allanbatista/batista-gpu-benchmark/actions/workflows/build.yml/badge.svg)](https://github.com/allanbatista/batista-gpu-benchmark/actions/workflows/build.yml)
+
 Cross-platform GPU benchmark built on [Bevy](https://bevy.org) 0.19 / wgpu.
-Renders a deterministic PBR scene — a central GLB model on a circular floor,
-orbited by seeded colored lights and a moving camera — and captures per-frame
-timing into reproducible reports.
+Renders a deterministic PBR scene — an astronaut inside a circular futuristic
+spaceship room, orbited by seeded colored lights and a moving camera — and
+captures per-frame timing into reproducible reports.
 
 Runs on **Linux** (Vulkan), **Windows** (DirectX 12, Vulkan) and **macOS**
 (Metal). The OpenGL/GLES option is listed but blocked with a clear error:
-Bevy 0.19 cannot create a GL surface (engine limitation, not a benchmark one) —
-it will return when the engine regains native GL support.
+Bevy 0.19 cannot create a GL surface (engine limitation) — it will return when
+the engine regains native GL support.
+
+![build status](https://img.shields.io/badge/rust-stable-orange) ![license](https://img.shields.io/badge/license-MIT-blue)
+
+## Installation
+
+Grab a package from the [releases page](https://github.com/allanbatista/batista-gpu-benchmark/releases)
+(also produced as artifacts by every CI run on `main`):
+
+| Format | Install |
+|---|---|
+| **Debian/Ubuntu** (`.deb`) | `sudo apt install ./batista-gpu-benchmark_*.deb` |
+| **Fedora/RHEL** (`.rpm`, dnf/yum) | `sudo dnf install ./batista-gpu-benchmark-*.rpm` |
+| **AppImage** | `chmod +x batista-gpu-benchmark-x86_64.AppImage && ./batista-gpu-benchmark-x86_64.AppImage` |
+| **Snap** | `sudo snap install --dangerous ./batista-gpu-benchmark_*.snap` |
+| **Flatpak** | `flatpak install ./batista-gpu-benchmark.flatpak` then `flatpak run com.allanbatista.GpuBenchmark` |
+| **Windows / macOS** | portable binaries attached to releases |
+
+Installed apps store settings in the user config dir
+(`~/.config/batista-gpu-benchmark/settings.toml`) and write results to
+`./results` relative to where they are launched (use `--output <dir>` to pick).
+
+## Building from source
+
+Stable Rust. On Linux no exotic system deps are required (audio/gamepad
+subsystems are compiled out).
+
+```bash
+make build        # cargo build --release
+make test         # cargo test --release
+sudo make install # installs to /usr/local (PREFIX=... DESTDIR=... supported)
+```
+
+Package targets (each builds the release binary first):
+
+```bash
+make deb          # needs: cargo install cargo-deb
+make rpm          # needs: cargo install cargo-generate-rpm
+make appimage     # downloads appimagetool on first run
+make snap         # needs: snapcraft
+make flatpak      # needs: flatpak-builder + org.freedesktop runtime 24.08
+```
 
 ## Quick start
 
@@ -19,7 +62,7 @@ cargo run --release          # interactive mode with settings UI
 Benchmark from the command line:
 
 ```bash
-cargo run --release -- \
+batista-gpu-benchmark \
   --benchmark --preset high --backend vulkan \
   --resolution 1920x1080 --vsync off \
   --warmup 10 --duration 60 --runs 3 \
@@ -45,7 +88,7 @@ cargo run --release -- \
 | `--exit-after-benchmark` | exit when done (code 0 = ok, 1 = runtime/report failure, 2 = invalid args) |
 | `--list-adapters` | print all GPU adapters and exit |
 
-Precedence: defaults < `config/settings.toml` < CLI flags.
+Precedence: defaults < settings file < CLI flags.
 
 ## How a run works
 
@@ -67,8 +110,9 @@ Idle → Loading → Prewarming → Warmup → Running → Finalizing → (Coold
 Each session writes `results/<YYYY-MM-DD_HH-MM-SS>/`:
 
 - `summary.json` — system, adapter (features/limits), settings snapshot,
-  per-run and consolidated metrics, versioned criteria, official/custom flag
-  with the exact deviation list.
+  per-run and consolidated metrics, GPU pass timings, optional telemetry
+  (CPU/RAM %, and on Linux amdgpu: GPU busy %, VRAM, temperature, power),
+  versioned criteria, official/custom flag with the exact deviation list.
 - `frames.csv` — `run_index, frame_index, elapsed_seconds, frame_time_ms, fps,
   gpu_time_ms`. `elapsed_seconds` is benchmark-clock time (starts at each run's
   warmup), so rows correlate with scene state. `gpu_time_ms` is empty when GPU
@@ -97,6 +141,27 @@ vsync **off**, FPS limit **off**, render scale 1.0, seed 42, the bundled model,
 reported as `custom` with the deviation list — still useful, just not
 cross-machine comparable.
 
+## The benchmark scene
+
+The bundled `assets/models/benchmark.glb` is the official workload model
+("Astronaut in a White Suit" — see `assets/models/ATTRIBUTION.md`). Comparable
+runs must use it (same model, same preset version, same seed). You can still
+load any GLB with `--model <path>` — the model is auto-scaled and grounded via
+its bounding box — but such runs are reported as `custom`.
+
+The environment (`assets/models/environment.glb`) is a circular futuristic
+spaceship room — white walls with black ribs/trim and emissive ring lighting —
+generated procedurally by `scripts/build_environment.py` (Blender ≥4.x,
+headless):
+
+```bash
+blender --background --python scripts/build_environment.py -- "$PWD/assets/models/environment.glb"
+```
+
+It provides the scene's floor, is part of the official workload, and its
+emissive rings become real ray-traced light sources in the experimental RT
+mode.
+
 ## Anti-aliasing
 
 Exclusive per-camera selector: **Off / MSAA 2×·4×·8× / FXAA / SMAA / TAA /
@@ -124,36 +189,14 @@ Notes:
 - Solari only samples **directional lights and emissive meshes**, so in RT mode
   the orbiting lights become emissive spheres (real ray-traced light sources)
   and punctual lights are silenced. Shadow mapping is replaced by ray-traced
-  visibility.
+  visibility. The room's emissive rings also become RT light sources.
 - Image is noisier than raster (no denoiser without DLSS Ray Reconstruction) —
   this mode benchmarks RT throughput, not image quality.
 - Reports are always marked `experimental` + `custom`; results are not
-  comparable across systems or with the PBR mode (spec §4.2).
+  comparable across systems or with the PBR mode.
 
-## The benchmark scene
+## License
 
-The bundled `assets/models/benchmark.glb` is the official workload model
-("Astronaut in a White Suit" — see `assets/models/ATTRIBUTION.md`). Comparable
-runs must use it (spec: same model, same preset version, same seed). You can
-still load any GLB with `--model <path>` — the model is auto-scaled and
-grounded via its bounding box — but such runs are reported as `custom`.
-
-The environment (`assets/models/environment.glb`) is a circular futuristic
-spaceship room — white walls with black ribs/trim and emissive ring lighting —
-generated procedurally by `scripts/build_environment.py` (Blender ≥4.x,
-headless):
-
-```bash
-blender --background --python scripts/build_environment.py -- "$PWD/assets/models/environment.glb"
-```
-
-It provides the scene's floor, is part of the official workload, and its
-emissive rings become real ray-traced light sources in the experimental RT
-mode.
-
-## Building
-
-Stable Rust (see `rust-version` implied by Bevy 0.19). Linux needs
-`libwayland-dev`-era basics only — audio/gamepad system deps are not used.
-Release builds are strongly recommended for benchmarking (debug builds are
-CPU-bound and marked as a deviation in reports).
+MIT — see [LICENSE](LICENSE). The bundled astronaut model was generated with
+Meshy AI by the project author; the environment is generated procedurally from
+this repository.

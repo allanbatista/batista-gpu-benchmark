@@ -1,0 +1,29 @@
+# Flatpak manifest. CI (and `make flatpak`) stages the prebuilt release binary
+# and assets into pkg-root/ at the repo root before running flatpak-builder —
+# building bevy inside the sandbox (network off) would require vendoring.
+app-id: com.allanbatista.GpuBenchmark
+runtime: org.freedesktop.Platform
+runtime-version: "24.08"
+sdk: org.freedesktop.Sdk
+command: batista-gpu-benchmark
+finish-args:
+  - --device=dri
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --filesystem=home
+modules:
+  - name: batista-gpu-benchmark
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 batista-gpu-benchmark /app/bin/batista-gpu-benchmark
+      - mkdir -p /app/share/batista-gpu-benchmark
+      - cp -r assets /app/share/batista-gpu-benchmark/
+      - install -Dm644 icon.png /app/share/icons/hicolor/256x256/apps/com.allanbatista.GpuBenchmark.png
+      - |
+        sed 's/^Icon=.*/Icon=com.allanbatista.GpuBenchmark/' batista-gpu-benchmark.desktop \
+          > com.allanbatista.GpuBenchmark.desktop
+      - install -Dm644 com.allanbatista.GpuBenchmark.desktop /app/share/applications/com.allanbatista.GpuBenchmark.desktop
+    sources:
+      - type: dir
+        path: ../../pkg-root

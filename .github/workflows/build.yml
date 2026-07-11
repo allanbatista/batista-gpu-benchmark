@@ -3,10 +3,12 @@ name: build
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
+  workflow_dispatch:
 
 jobs:
-  build:
+  test:
     strategy:
       fail-fast: false
       matrix:
@@ -17,13 +19,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Linux system deps
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev
+        run: sudo apt-get update && sudo apt-get install -y libwayland-dev libxkbcommon-dev
       - uses: Swatinem/rust-cache@v2
       - name: Test
         run: cargo test --release
       - name: Build
         run: cargo build --release
-      - name: Upload artifact
+      - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
           name: batista-gpu-benchmark-${{ matrix.os }}
@@ -31,3 +33,113 @@ jobs:
             target/release/batista-gpu-benchmark
             target/release/batista-gpu-benchmark.exe
           if-no-files-found: ignore
+
+  linux-packages:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: System deps
+        run: sudo apt-get update && sudo apt-get install -y libwayland-dev libxkbcommon-dev
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb,cargo-generate-rpm
+      - name: Build .deb
+        run: cargo deb --no-build
+      - name: Build .rpm
+        run: cargo generate-rpm
+      - name: Build AppImage
+        run: bash packaging/build-appimage.sh
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            target/debian/*.deb
+            target/generate-rpm/*.rpm
+            target/appimage/*.AppImage
+
+  snap:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: System deps
+        run: sudo apt-get update && sudo apt-get install -y libwayland-dev libxkbcommon-dev
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release
+      - name: Stage snap payload
+        run: |
+          mkdir -p snap-stage/usr/bin snap-stage/usr/share/batista-gpu-benchmark
+          install -m755 target/release/batista-gpu-benchmark snap-stage/usr/bin/
+          cp -r assets snap-stage/usr/share/batista-gpu-benchmark/
+      - uses: snapcore/action-build@v1
+        id: snapcraft
+      - name: Upload snap
+        uses: actions/upload-artifact@v4
+        with:
+          name: snap
+          path: ${{ steps.snapcraft.outputs.snap }}
+
+  flatpak:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: System deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release
+      - name: Stage flatpak payload
+        run: |
+          mkdir -p pkg-root
+          install -m755 target/release/batista-gpu-benchmark pkg-root/
+          cp -r assets pkg-root/
+          cp packaging/batista-gpu-benchmark.desktop packaging/icon.png pkg-root/
+      - name: Build flatpak bundle
+        run: |
+          flatpak-builder --user --force-clean --repo=flatpak-repo flatpak-build \
+            packaging/flatpak/com.allanbatista.GpuBenchmark.yml
+          flatpak build-bundle flatpak-repo batista-gpu-benchmark.flatpak com.allanbatista.GpuBenchmark
+      - name: Upload flatpak
+        uses: actions/upload-artifact@v4
+        with:
+          name: flatpak
+          path: batista-gpu-benchmark.flatpak
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, linux-packages, snap, flatpak]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Rename OS binaries
+        run: |
+          mv dist/batista-gpu-benchmark-ubuntu-latest/batista-gpu-benchmark dist/batista-gpu-benchmark-linux-x86_64 || true
+          mv dist/batista-gpu-benchmark-macos-latest/batista-gpu-benchmark dist/batista-gpu-benchmark-macos || true
+          mv dist/batista-gpu-benchmark-windows-latest/batista-gpu-benchmark.exe dist/batista-gpu-benchmark-windows-x86_64.exe || true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/batista-gpu-benchmark-linux-x86_64
+            dist/batista-gpu-benchmark-macos
+            dist/batista-gpu-benchmark-windows-x86_64.exe
+            dist/linux-packages/**
+            dist/snap/*.snap
+            dist/flatpak/*.flatpak

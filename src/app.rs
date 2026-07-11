@@ -35,6 +35,7 @@ pub struct SettingsIo {
 
 pub fn run(settings: Settings, run: RunOptions) -> AppExit {
     let mut app = App::new();
+    let asset_root = run.asset_root.clone();
 
     // Reduced logging during automated benchmark runs (spec §14/§17).
     // Benchmark mode: silence engine noise, keep this app's few own lines.
@@ -74,9 +75,11 @@ pub fn run(settings: Settings, run: RunOptions) -> AppExit {
                 filter: log_filter.into(),
                 ..default()
             })
-            // Allows --model to load a GLB from any filesystem path.
+            // Allows --model to load a GLB from any filesystem path; file_path
+            // points at the resolved assets dir (portable/system/dev layouts).
             .set(bevy::asset::AssetPlugin {
                 unapproved_path_mode: bevy::asset::UnapprovedPathMode::Allow,
+                file_path: asset_root.unwrap_or_else(|| "assets".into()),
                 ..default()
             }),
     );

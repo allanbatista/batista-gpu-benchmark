@@ -1,0 +1,42 @@
+# Snap package. CI (and `make snap`) stages the prebuilt release binary into
+# snap-stage/ before running snapcraft (dump plugin — bevy is built once by
+# cargo, not again inside snapcraft).
+name: batista-gpu-benchmark
+base: core24
+version: "0.1.0"
+summary: Cross-platform GPU benchmark built on Bevy/wgpu
+description: |
+  Renders a deterministic PBR scene — an astronaut in a circular spaceship
+  room, orbited by seeded colored lights — and captures per-frame timing into
+  reproducible reports (summary.json + frames.csv). Vulkan-first, with
+  experimental ray-traced lighting.
+grade: stable
+confinement: strict
+platforms:
+  amd64:
+
+parts:
+  app:
+    plugin: dump
+    source: snap-stage/
+    stage-packages:
+      - libvulkan1
+      - mesa-vulkan-drivers
+      - libwayland-client0
+      - libwayland-cursor0
+      - libwayland-egl1
+      - libx11-6
+      - libxcursor1
+      - libxi6
+      - libxrandr2
+      - libxkbcommon0
+
+apps:
+  batista-gpu-benchmark:
+    command: usr/bin/batista-gpu-benchmark
+    plugs:
+      - opengl
+      - wayland
+      - x11
+      - desktop
+      - home

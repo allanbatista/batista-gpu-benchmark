@@ -4,6 +4,37 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 description = "Cross-platform GPU benchmark built on Bevy + wgpu"
+repository = "https://github.com/allanbatista/batista-gpu-benchmark"
+authors = ["Allan Batista <allan@allanbatista.com.br>"]
+
+[package.metadata.deb]
+maintainer = "Allan Batista <allan@allanbatista.com.br>"
+copyright = "2026, Allan Batista"
+section = "utils"
+priority = "optional"
+extended-description = """\
+Renders a deterministic PBR scene (astronaut in a circular spaceship room, \
+orbited by seeded colored lights) and captures per-frame timing into \
+reproducible reports (summary.json + frames.csv). Vulkan-first, with \
+experimental ray-traced lighting."""
+depends = "$auto, libvulkan1"
+assets = [
+    ["target/release/batista-gpu-benchmark", "usr/bin/", "755"],
+    ["assets/models/*", "usr/share/batista-gpu-benchmark/assets/models/", "644"],
+    ["packaging/batista-gpu-benchmark.desktop", "usr/share/applications/", "644"],
+    ["packaging/icon.png", "usr/share/icons/hicolor/256x256/apps/batista-gpu-benchmark.png", "644"],
+    ["README.md", "usr/share/doc/batista-gpu-benchmark/", "644"],
+]
+
+[package.metadata.generate-rpm]
+auto-req = "auto"
+assets = [
+    { source = "target/release/batista-gpu-benchmark", dest = "/usr/bin/batista-gpu-benchmark", mode = "755" },
+    { source = "assets/models/*", dest = "/usr/share/batista-gpu-benchmark/assets/models/", mode = "644" },
+    { source = "packaging/batista-gpu-benchmark.desktop", dest = "/usr/share/applications/batista-gpu-benchmark.desktop", mode = "644" },
+    { source = "packaging/icon.png", dest = "/usr/share/icons/hicolor/256x256/apps/batista-gpu-benchmark.png", mode = "644" },
+    { source = "README.md", dest = "/usr/share/doc/batista-gpu-benchmark/README.md", mode = "644", doc = true },
+]
 
 [dependencies]
 # No default features: skips gamepad (libudev) and audio (alsa) — not needed for a GPU

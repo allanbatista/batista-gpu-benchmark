@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Batista GPU Benchmark
+Comment=Cross-platform GPU benchmark built on Bevy/wgpu
+Exec=batista-gpu-benchmark
+Icon=batista-gpu-benchmark
+Terminal=false
+Categories=System;Utility;
+Keywords=gpu;benchmark;vulkan;graphics;

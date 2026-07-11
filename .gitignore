@@ -1,3 +1,10 @@
 /target
 /results
 /config/settings.toml
+/snap-stage
+/pkg-root
+/flatpak-repo
+/flatpak-build
+/.flatpak-builder
+*.snap
+*.flatpak

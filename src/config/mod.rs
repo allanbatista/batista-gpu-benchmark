@@ -364,13 +364,29 @@ pub struct Settings {
     pub benchmark: BenchmarkSettings,
 }
 
+/// Settings location: the spec's `./config/settings.toml` when running from a
+/// dev/portable layout; the user config dir (XDG / APPDATA) for system installs
+/// (deb/rpm/AppImage/snap/flatpak), where the cwd is not ours.
+pub fn settings_path() -> PathBuf {
+    if Path::new("Cargo.toml").is_file() || Path::new("config").is_dir() {
+        return PathBuf::from(SETTINGS_PATH);
+    }
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
+        .or_else(|| std::env::var_os("APPDATA").map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("."));
+    base.join("batista-gpu-benchmark").join("settings.toml")
+}
+
 impl Settings {
     pub fn load() -> Self {
-        match std::fs::read_to_string(SETTINGS_PATH) {
+        let path = settings_path();
+        match std::fs::read_to_string(&path) {
             Ok(text) => match toml::from_str(&text) {
                 Ok(s) => s,
                 Err(e) => {
-                    eprintln!("warning: invalid {SETTINGS_PATH} ({e}); using defaults");
+                    eprintln!("warning: invalid {} ({e}); using defaults", path.display());
                     Self::default()
                 }
             },
@@ -379,11 +395,12 @@ impl Settings {
     }
 
     pub fn save(&self) -> std::io::Result<()> {
-        if let Some(dir) = Path::new(SETTINGS_PATH).parent() {
+        let path = settings_path();
+        if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
         let text = toml::to_string_pretty(self).expect("settings serialize");
-        std::fs::write(SETTINGS_PATH, text)
+        std::fs::write(path, text)
     }
 }
 
@@ -603,6 +620,9 @@ pub struct RunOptions {
     /// True when any CLI flag overrode persisted settings (report marks source).
     pub cli_overrides: bool,
     pub debug_screenshot: Option<PathBuf>,
+    /// Absolute assets dir resolved at startup (system installs put assets in
+    /// <prefix>/share/batista-gpu-benchmark/assets). None = bevy's default.
+    pub asset_root: Option<String>,
 }
 
 /// Merges CLI args over loaded settings. Errors are returned as user-facing strings.
@@ -702,6 +722,7 @@ pub fn merge_cli(settings: &mut Settings, cli: &Cli) -> Result<RunOptions, Strin
         exit_after: cli.exit_after_benchmark,
         cli_overrides: overrode,
         debug_screenshot: cli.debug_screenshot.clone(),
+        asset_root: None, // resolved later in main
     })
 }
 
