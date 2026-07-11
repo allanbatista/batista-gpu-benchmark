@@ -14,7 +14,7 @@ use bevy::render::renderer::{RenderAdapterInfo, RenderDevice};
 use bevy::window::{MonitorSelection, PresentMode, PrimaryWindow, VideoModeSelection, WindowMode};
 
 use crate::app::AppSettings;
-use crate::config::{AaMode, TonemappingSetting, WindowModeSetting};
+use crate::config::{AaMode, TonemappingSetting, UpscalerSetting, WindowModeSetting};
 use crate::scene::BenchCamera;
 
 /// What the current adapter/backend actually supports. UI disables (never hides)
@@ -72,6 +72,7 @@ fn detect_dlss(
 #[derive(PartialEq, Clone)]
 struct CameraCfgKey {
     aa: AaMode,
+    upscaler: UpscalerSetting,
     fsr1_quality: crate::config::Fsr1Quality,
     bloom: f32,
     hdr: bool,
@@ -105,6 +106,7 @@ fn apply_camera_settings(
         .unwrap_or(UVec2::new(1920, 1080));
     let new_key = CameraCfgKey {
         aa: r.aa,
+        upscaler: r.upscaler,
         fsr1_quality: r.fsr1_quality,
         bloom: r.bloom,
         hdr: r.hdr,
@@ -131,7 +133,12 @@ fn apply_camera_settings(
         bevy::camera::MainPassResolutionOverride,
     )>();
 
+    // DLSS is a temporal upscaler: it replaces anti-aliasing entirely (its
+    // jitter conflicts with TAA and it requires Msaa::Off).
+    let dlss_active = r.upscaler == UpscalerSetting::Dlss && cfg!(feature = "dlss") && caps.dlss_supported;
+
     let msaa = match r.aa {
+        _ if dlss_active => Msaa::Off,
         AaMode::Msaa2 => Msaa::Sample2,
         AaMode::Msaa4 => Msaa::Sample4,
         AaMode::Msaa8 if !caps.ready || caps.max_msaa >= 8 => Msaa::Sample8,
@@ -139,20 +146,25 @@ fn apply_camera_settings(
         _ => Msaa::Off,
     };
     entity.insert(msaa);
-    match r.aa {
-        AaMode::Fxaa => {
-            entity.insert(Fxaa::default());
+    if !dlss_active {
+        match r.aa {
+            AaMode::Fxaa => {
+                entity.insert(Fxaa::default());
+            }
+            AaMode::Smaa => {
+                entity.insert(Smaa::default());
+            }
+            AaMode::Taa => {
+                entity.insert(TemporalAntiAliasing::default());
+            }
+            _ => {}
         }
-        AaMode::Smaa => {
-            entity.insert(Smaa::default());
-        }
-        AaMode::Taa => {
-            entity.insert(TemporalAntiAliasing::default());
-        }
-        AaMode::Fsr1 => {
-            // ponytail: FSR1-style = low-res main pass + bevy's bilinear upscale +
-            // AMD FidelityFX CAS sharpening. Full EASU edge reconstruction is the
-            // upgrade path if image quality ever warrants a custom pass.
+    }
+    match r.upscaler {
+        // ponytail: FSR1-style = low-res main pass + bevy's bilinear upscale +
+        // AMD FidelityFX CAS sharpening; composes with any AA at render res.
+        // Full EASU edge reconstruction is the upgrade path.
+        UpscalerSetting::Fsr1 => {
             entity.insert(ContrastAdaptiveSharpening {
                 enabled: true,
                 sharpening_strength: 0.6,
@@ -160,15 +172,13 @@ fn apply_camera_settings(
             });
         }
         #[cfg(feature = "dlss")]
-        AaMode::Dlss => {
-            if caps.dlss_supported {
-                entity.insert(bevy::anti_alias::dlss::Dlss::<
-                    bevy::anti_alias::dlss::DlssSuperResolutionFeature,
-                > {
-                    perf_quality_mode: bevy::anti_alias::dlss::DlssPerfQualityMode::Auto,
-                    ..default()
-                });
-            }
+        UpscalerSetting::Dlss if dlss_active => {
+            entity.insert(bevy::anti_alias::dlss::Dlss::<
+                bevy::anti_alias::dlss::DlssSuperResolutionFeature,
+            > {
+                perf_quality_mode: bevy::anti_alias::dlss::DlssPerfQualityMode::Auto,
+                ..default()
+            });
         }
         _ => {}
     }
@@ -191,8 +201,13 @@ fn apply_camera_settings(
         TonemappingSetting::KhronosPbrNeutral => Tonemapping::KhronosPbrNeutral,
     });
 
-    // FSR1 drives its own internal resolution; otherwise the manual render scale applies.
-    let effective_scale = if r.aa == AaMode::Fsr1 { r.fsr1_quality.render_scale() } else { r.render_scale };
+    // FSR1 drives the internal resolution from its quality factor; DLSS manages
+    // its own override; otherwise the manual render scale applies.
+    let effective_scale = match r.upscaler {
+        UpscalerSetting::Fsr1 => r.fsr1_quality.render_scale(),
+        UpscalerSetting::Dlss if dlss_active => 1.0,
+        _ => r.render_scale,
+    };
     if effective_scale < 1.0 {
         let scaled = (window_size.as_vec2() * effective_scale).as_uvec2().max(UVec2::ONE);
         entity.insert(bevy::camera::MainPassResolutionOverride(scaled));

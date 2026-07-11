@@ -231,28 +231,54 @@ fn renderer_section(ui: &mut egui::Ui, s: &mut Settings, caps: &Capabilities) {
         }
     });
 
-    egui::ComboBox::from_label("Anti-aliasing")
-        .selected_text(r.aa.label())
+    // DLSS is temporal AA+upscale in one: while active, the AA selector is moot.
+    let dlss_selected = r.upscaler == crate::config::UpscalerSetting::Dlss;
+    ui.add_enabled_ui(!dlss_selected, |ui| {
+        egui::ComboBox::from_label("Anti-aliasing")
+            .selected_text(if dlss_selected { "handled by DLSS" } else { r.aa.label() })
+            .show_ui(ui, |ui| {
+                for mode in AaMode::all() {
+                    let (enabled, reason) = aa_available(mode, caps);
+                    ui.add_enabled_ui(enabled, |ui| {
+                        ui.selectable_value(&mut r.aa, mode, mode.label())
+                            .on_disabled_hover_text(reason);
+                    });
+                }
+            })
+            .response
+            .on_disabled_hover_text("DLSS replaces anti-aliasing (temporal upscaler)");
+    });
+
+    egui::ComboBox::from_label("Upscaler")
+        .selected_text(r.upscaler.label())
         .show_ui(ui, |ui| {
-            for mode in AaMode::all() {
-                let (enabled, reason) = aa_available(mode, caps);
+            for up in crate::config::UpscalerSetting::all() {
+                let (enabled, reason) = upscaler_available(up, caps);
                 ui.add_enabled_ui(enabled, |ui| {
-                    ui.selectable_value(&mut r.aa, mode, mode.label())
+                    ui.selectable_value(&mut r.upscaler, up, up.label())
                         .on_disabled_hover_text(reason);
                 });
             }
         });
-    if r.aa == AaMode::Fsr1 {
-        egui::ComboBox::from_label("FSR 1.0 quality")
-            .selected_text(r.fsr1_quality.label())
-            .show_ui(ui, |ui| {
-                for q in crate::config::Fsr1Quality::all() {
-                    ui.selectable_value(&mut r.fsr1_quality, q, q.label());
-                }
-            });
-        ui.label(egui::RichText::new("FSR1-style: low-res render + AMD CAS sharpening (upscaler runs are never comparable)").weak());
+    match r.upscaler {
+        crate::config::UpscalerSetting::Fsr1 => {
+            egui::ComboBox::from_label("FSR 1.0 quality")
+                .selected_text(r.fsr1_quality.label())
+                .show_ui(ui, |ui| {
+                    for q in crate::config::Fsr1Quality::all() {
+                        ui.selectable_value(&mut r.fsr1_quality, q, q.label());
+                    }
+                });
+            ui.label(
+                egui::RichText::new(
+                    "FSR1-style: low-res render + AMD CAS sharpening; composes with the AA above",
+                )
+                .weak(),
+            );
+        }
+        _ => {}
     }
-    if r.aa.is_upscaler() {
+    if r.upscaler != crate::config::UpscalerSetting::Off {
         ui.label(egui::RichText::new("⚠ upscalers mark the run as non-comparable").weak());
     }
 
@@ -291,7 +317,13 @@ fn renderer_section(ui: &mut egui::Ui, s: &mut Settings, caps: &Capabilities) {
 fn aa_available(mode: AaMode, caps: &Capabilities) -> (bool, &'static str) {
     match mode {
         AaMode::Msaa8 if caps.ready && caps.max_msaa < 8 => (false, "MSAA 8x not supported by this adapter"),
-        AaMode::Dlss => {
+        _ => (true, ""),
+    }
+}
+
+fn upscaler_available(up: crate::config::UpscalerSetting, caps: &Capabilities) -> (bool, &'static str) {
+    match up {
+        crate::config::UpscalerSetting::Dlss => {
             if cfg!(feature = "dlss") {
                 (caps.dlss_supported, "Requires an NVIDIA RTX GPU on Vulkan")
             } else {

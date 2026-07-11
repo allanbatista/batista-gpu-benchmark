@@ -127,6 +127,8 @@ pub fn write_when_completed(
             },
             "experimental": plan.settings.renderer.render_mode != crate::config::RenderModeSetting::Pbr,
             "aa": format!("{:?}", plan.settings.renderer.aa),
+            "upscaler": format!("{:?}", plan.settings.renderer.upscaler),
+            "fsr1_quality": format!("{:?}", plan.settings.renderer.fsr1_quality),
             "render_scale": plan.settings.renderer.render_scale,
             "bloom": plan.settings.renderer.bloom,
             "tonemapping": format!("{:?}", plan.settings.renderer.tonemapping),

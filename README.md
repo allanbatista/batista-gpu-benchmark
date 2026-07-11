@@ -162,20 +162,27 @@ It provides the scene's floor, is part of the official workload, and its
 emissive rings become real ray-traced light sources in the experimental RT
 mode.
 
-## Anti-aliasing
+## Anti-aliasing & upscaling
 
-Exclusive per-camera selector: **Off / MSAA 2×·4×·8× / FXAA / SMAA / TAA /
-DLSS / FSR 1.0**. MSAA levels are pinned by presets; any other mode marks the
-run custom. DLSS and FSR 1.0 are upscalers — they change the internal
-resolution and are never comparable with native rendering.
+Two independent axes:
 
-- **FSR 1.0** (any GPU): FSR1-style spatial upscale — the 3D pass renders at
-  the official FSR quality factors (1.3×/1.5×/1.7×/2.0×) and is upscaled with
-  AMD FidelityFX CAS sharpening on top. (Full EASU edge reconstruction is a
-  possible future upgrade.)
-- **DLSS** (NVIDIA RTX + Vulkan): native Bevy integration; requires building
-  with `--features dlss` and the NVIDIA DLSS SDK (`DLSS_SDK` + `VULKAN_SDK`
-  env vars, clang). CI never builds it; untested until run on RTX hardware.
+**Anti-aliasing** — native-resolution AA: **Off / MSAA 2×·4×·8× / FXAA /
+SMAA / TAA**. MSAA levels are pinned by presets; a different AA marks the run
+custom.
+
+**Upscaler** — renders the 3D pass at a lower internal resolution and
+reconstructs: **Off (native) / FSR 1.0 / DLSS**. Any upscaler marks the run
+non-comparable (the internal resolution changes).
+
+- **FSR 1.0** (any GPU): FSR1-style spatial upscale at the official quality
+  factors (1.3×/1.5×/1.7×/2.0×) plus AMD FidelityFX CAS sharpening. Being
+  spatial, it **composes with any AA mode** (e.g. FSR 1.0 + MSAA 4×). Full
+  EASU edge reconstruction is a possible future upgrade.
+- **DLSS** (NVIDIA RTX + Vulkan): temporal upscaler — it **replaces
+  anti-aliasing entirely** (the AA selector is disabled while DLSS is active).
+  Requires building with `--features dlss` and the NVIDIA DLSS SDK
+  (`DLSS_SDK` + `VULKAN_SDK` env vars, clang). CI never builds it; untested
+  until run on RTX hardware.
 
 ## Ray tracing (experimental)
 

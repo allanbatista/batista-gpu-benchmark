@@ -73,7 +73,8 @@ pub enum PowerPrefSetting {
     HighPerformance,
 }
 
-/// Exclusive anti-aliasing / upscaler selector (one mode active on the camera).
+/// Anti-aliasing selector (native-resolution AA only; upscalers are a
+/// separate axis — see [`UpscalerSetting`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum AaMode {
@@ -85,8 +86,6 @@ pub enum AaMode {
     Fxaa,
     Smaa,
     Taa,
-    Dlss,
-    Fsr1,
 }
 
 impl AaMode {
@@ -99,27 +98,36 @@ impl AaMode {
             Self::Fxaa => "FXAA",
             Self::Smaa => "SMAA",
             Self::Taa => "TAA",
-            Self::Dlss => "DLSS (upscaler)",
-            Self::Fsr1 => "FSR 1.0 (upscaler)",
         }
     }
 
-    pub fn all() -> [Self; 9] {
-        [
-            Self::Off,
-            Self::Msaa2,
-            Self::Msaa4,
-            Self::Msaa8,
-            Self::Fxaa,
-            Self::Smaa,
-            Self::Taa,
-            Self::Dlss,
-            Self::Fsr1,
-        ]
+    pub fn all() -> [Self; 7] {
+        [Self::Off, Self::Msaa2, Self::Msaa4, Self::Msaa8, Self::Fxaa, Self::Smaa, Self::Taa]
+    }
+}
+
+/// Upscaler selector, independent from anti-aliasing. FSR 1.0 is spatial and
+/// composes with any AA mode; DLSS is temporal and replaces AA entirely.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum UpscalerSetting {
+    #[default]
+    Off,
+    Fsr1,
+    Dlss,
+}
+
+impl UpscalerSetting {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Off => "Off (native)",
+            Self::Fsr1 => "FSR 1.0",
+            Self::Dlss => "DLSS",
+        }
     }
 
-    pub fn is_upscaler(self) -> bool {
-        matches!(self, Self::Dlss | Self::Fsr1)
+    pub fn all() -> [Self; 3] {
+        [Self::Off, Self::Fsr1, Self::Dlss]
     }
 }
 
@@ -253,6 +261,7 @@ pub struct RendererSettings {
     pub power_preference: PowerPrefSetting,
     pub render_mode: RenderModeSetting,
     pub aa: AaMode,
+    pub upscaler: UpscalerSetting,
     pub fsr1_quality: Fsr1Quality,
     /// Internal 3D render scale, (0, 1]. 1.0 = native.
     pub render_scale: f32,
@@ -275,6 +284,7 @@ impl Default for RendererSettings {
             power_preference: PowerPrefSetting::Auto,
             render_mode: RenderModeSetting::Pbr,
             aa: AaMode::Msaa4,
+            upscaler: UpscalerSetting::Off,
             fsr1_quality: Fsr1Quality::Quality,
             render_scale: 1.0,
             shadows: true,
@@ -504,6 +514,9 @@ pub fn official_deviations(s: &Settings) -> Vec<String> {
     }
     if s.renderer.aa != def.aa {
         dev.push(format!("aa_mode={:?}", s.renderer.aa));
+    }
+    if s.renderer.upscaler != UpscalerSetting::Off {
+        dev.push(format!("upscaler={:?}", s.renderer.upscaler));
     }
     if s.renderer.bloom != def.bloom {
         dev.push(format!("bloom={}", s.renderer.bloom));
@@ -773,10 +786,10 @@ mod tests {
         assert!(dev.is_empty(), "unexpected deviations: {dev:?}");
 
         s.display.vsync = true;
-        s.renderer.aa = AaMode::Fsr1;
+        s.renderer.upscaler = UpscalerSetting::Fsr1;
         let dev = official_deviations(&s);
         assert!(dev.iter().any(|d| d == "vsync=on"));
-        assert!(dev.iter().any(|d| d.starts_with("aa_mode")));
+        assert!(dev.iter().any(|d| d.starts_with("upscaler")));
     }
 
     #[test]
