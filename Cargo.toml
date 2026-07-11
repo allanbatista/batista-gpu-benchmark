@@ -44,6 +44,12 @@ bevy = { version = "0.19", default-features = false, features = [
     "3d_bevy_render",    # render, core_pipeline, pbr, gltf, anti_alias, post_process, gizmos
     "scene",             # bevy_world_serialization (GLB scene instancing)
     "picking",           # bevy_egui routes pointer input through bevy_picking
+    # bevy_egui (default features) orders its render pass `.after(bevy_ui's
+    # ui_pass)`. Without the bevy_ui render plugin that anchor doesn't exist,
+    # the ordering constraint evaporates and egui lands at a NONDETERMINISTIC
+    # point among the post-process passes — UI intermittently not rendered.
+    "bevy_ui",
+    "ui_bevy_render",
     "std",
     "multi_threaded",
     "bevy_winit",
