@@ -30,6 +30,13 @@ pub struct BenchDirLight;
 #[derive(Component)]
 pub struct ModelRoot;
 
+/// Root of the environment GLB (the spaceship room). Never normalized —
+/// authored at world scale with its floor at y=0.
+#[derive(Component)]
+pub struct EnvRoot;
+
+pub const ENVIRONMENT_MODEL: &str = "models/environment.glb";
+
 /// Normalized model bounds; motion and framing derive from this.
 #[derive(Resource)]
 pub struct SceneMetrics {
@@ -73,7 +80,7 @@ impl Plugin for ScenePlugin {
             .insert_resource(ClearColor(Color::srgb(0.012, 0.014, 0.020)))
             .insert_resource(GlobalAmbientLight {
                 color: Color::srgb(0.75, 0.82, 1.0),
-                brightness: 25.0,
+                brightness: 12.0,
                 ..default()
             })
             .add_systems(Startup, setup_static_scene)
@@ -98,11 +105,7 @@ impl Plugin for ScenePlugin {
 // Static scene + model
 // ---------------------------------------------------------------------------
 
-fn setup_static_scene(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
+fn setup_static_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
         BenchCamera,
         Camera3d::default(),
@@ -115,16 +118,11 @@ fn setup_static_scene(
         Transform::from_xyz(4.0, 2.2, 4.0).looking_at(Vec3::new(0.0, 0.9, 0.0), Vec3::Y),
     ));
 
-    // Circular floor, slightly glossy to catch the moving lights.
+    // Environment: circular spaceship room (white, black trim, ring lighting).
+    // Provides the floor; authored at world scale, so no normalization.
     commands.spawn((
-        Mesh3d(meshes.add(Circle::new(6.0))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.055, 0.055, 0.07),
-            perceptual_roughness: 0.6,
-            metallic: 0.02,
-            ..default()
-        })),
-        Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
+        EnvRoot,
+        WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(ENVIRONMENT_MODEL))),
     ));
 }
 

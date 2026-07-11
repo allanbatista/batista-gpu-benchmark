@@ -130,13 +130,26 @@ Notes:
 - Reports are always marked `experimental` + `custom`; results are not
   comparable across systems or with the PBR mode (spec §4.2).
 
-## The benchmark model
+## The benchmark scene
 
 The bundled `assets/models/benchmark.glb` is the official workload model
 ("Astronaut in a White Suit" — see `assets/models/ATTRIBUTION.md`). Comparable
 runs must use it (spec: same model, same preset version, same seed). You can
 still load any GLB with `--model <path>` — the model is auto-scaled and
 grounded via its bounding box — but such runs are reported as `custom`.
+
+The environment (`assets/models/environment.glb`) is a circular futuristic
+spaceship room — white walls with black ribs/trim and emissive ring lighting —
+generated procedurally by `scripts/build_environment.py` (Blender ≥4.x,
+headless):
+
+```bash
+blender --background --python scripts/build_environment.py -- "$PWD/assets/models/environment.glb"
+```
+
+It provides the scene's floor, is part of the official workload, and its
+emissive rings become real ray-traced light sources in the experimental RT
+mode.
 
 ## Building
 
