@@ -322,7 +322,7 @@ impl Default for SceneSettings {
         Self {
             model: None,
             light_count: 16,
-            shadow_caster_count: 4,
+            shadow_caster_count: 16,
             directional_light: false,
             light_intensity: 1.0,
             light_speed: 1.0,
@@ -429,12 +429,14 @@ pub struct PresetDef {
     pub shadow_map_size: u32,
 }
 
+// All lights cast shadows in every preset (each shadowed point light renders
+// the scene 6x for its cubemap — that IS the workload).
 pub const PRESETS: [PresetDef; 4] = [
     PresetDef {
         id: PresetId::Low,
         version: "low-v1",
         lights: 4,
-        shadow_casters: 0,
+        shadow_casters: 4,
         directional_light: false,
         aa: AaMode::Off,
         bloom: 0.0,
@@ -444,7 +446,7 @@ pub const PRESETS: [PresetDef; 4] = [
         id: PresetId::Medium,
         version: "medium-v1",
         lights: 8,
-        shadow_casters: 2,
+        shadow_casters: 8,
         directional_light: false,
         aa: AaMode::Msaa2,
         bloom: 0.10,
@@ -454,7 +456,7 @@ pub const PRESETS: [PresetDef; 4] = [
         id: PresetId::High,
         version: "high-v1",
         lights: 16,
-        shadow_casters: 4,
+        shadow_casters: 16,
         directional_light: false,
         aa: AaMode::Msaa4,
         bloom: 0.15,
@@ -464,7 +466,7 @@ pub const PRESETS: [PresetDef; 4] = [
         id: PresetId::Extreme,
         version: "extreme-v1",
         lights: 32,
-        shadow_casters: 8,
+        shadow_casters: 32,
         directional_light: true,
         aa: AaMode::Msaa8,
         bloom: 0.20,

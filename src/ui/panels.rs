@@ -337,7 +337,7 @@ fn upscaler_available(up: crate::config::UpscalerSetting, caps: &Capabilities) -
 fn scene_section(ui: &mut egui::Ui, s: &mut Settings) {
     let sc = &mut s.scene;
     ui.add(egui::Slider::new(&mut sc.light_count, 1..=64).text("Lights"));
-    ui.add(egui::Slider::new(&mut sc.shadow_caster_count, 0..=10).text("Shadow-casting lights"));
+    ui.add(egui::Slider::new(&mut sc.shadow_caster_count, 0..=64).text("Shadow-casting lights"));
     ui.checkbox(&mut sc.directional_light, "Directional light");
     ui.checkbox(&mut sc.point_shadows, "Point light shadows");
     ui.checkbox(&mut sc.spot_shadows, "Spot light shadows");

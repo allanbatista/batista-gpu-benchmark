@@ -426,7 +426,8 @@ fn move_camera(
         let dist = (radius * 3.4).max(1.5) * freecam.dist_mul;
         let (ys, yc) = freecam.yaw.sin_cos();
         let (ps, pc) = freecam.pitch.sin_cos();
-        (center + DVec3::new(dist * pc * yc, dist * ps, dist * pc * ys), center)
+        let eye = center + DVec3::new(dist * pc * yc, dist * ps, dist * pc * ys);
+        (orbits::clamp_to_room(eye), center)
     } else {
         orbits::camera_pose(
             clock.t,

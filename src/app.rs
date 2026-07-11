@@ -119,6 +119,7 @@ fn debug_screenshot(
     run: Res<RunOpts>,
     clock: Res<crate::scene::orbits::BenchClock>,
     metrics: Res<crate::scene::SceneMetrics>,
+    capturing: Query<(), With<bevy::render::view::screenshot::Capturing>>,
     mut commands: Commands,
     mut exit: MessageWriter<AppExit>,
     mut ready_at: Local<Option<f64>>,
@@ -135,7 +136,9 @@ fn debug_screenshot(
                 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
                 commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
             }
-            if clock.t > t0 + 4.0 {
+            // Exit only after the async capture finished writing (heavy scenes
+            // can take several seconds between spawn and save).
+            if clock.t > t0 + 4.0 && *taken && capturing.is_empty() {
                 exit.write(AppExit::Success);
             }
         }

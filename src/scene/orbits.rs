@@ -165,13 +165,32 @@ pub fn light_position(p: &LightParams, t: f64) -> DVec3 {
     DVec3::new(pos.x, pos.y.max(0.15), pos.z)
 }
 
+/// The environment room is a 9 m-radius, 6 m-tall cylinder; the camera must
+/// never leave it (margin keeps the near plane off the walls).
+pub const CAM_MAX_XZ: f64 = 8.3;
+pub const CAM_MIN_Y: f64 = 0.3;
+pub const CAM_MAX_Y: f64 = 5.6;
+
+/// Clamps an eye position to the inside of the room (pure — keeps trajectories
+/// deterministic).
+pub fn clamp_to_room(eye: DVec3) -> DVec3 {
+    let xz_len = (eye.x * eye.x + eye.z * eye.z).sqrt();
+    let (x, z) = if xz_len > CAM_MAX_XZ {
+        let s = CAM_MAX_XZ / xz_len;
+        (eye.x * s, eye.z * s)
+    } else {
+        (eye.x, eye.z)
+    };
+    DVec3::new(x, eye.y.clamp(CAM_MIN_Y, CAM_MAX_Y), z)
+}
+
 /// Camera position/target at benchmark time `t`, framed around the model bounds.
 pub fn camera_pose(t: f64, center: DVec3, radius: f64, dist_mul: f64, speed_mul: f64) -> (DVec3, DVec3) {
     let dist = (radius * 3.0).max(1.5) * dist_mul;
     let angle = (0.22 * speed_mul * t).rem_euclid(TAU);
     let height = center.y + radius * (0.8 + 0.3 * (t * 0.13 * speed_mul).sin());
     let eye = DVec3::new(dist * angle.cos(), height, dist * angle.sin());
-    (eye, center)
+    (clamp_to_room(eye), center)
 }
 
 #[cfg(test)]
@@ -217,6 +236,20 @@ mod tests {
         let (eye_b, tgt_b) = camera_pose(12.34, DVec3::new(0.0, 0.9, 0.0), 1.0, 1.0, 1.0);
         assert_eq!(eye_a, eye_b);
         assert_eq!(tgt_a, tgt_b);
+    }
+
+    #[test]
+    fn camera_never_leaves_the_room() {
+        // zoomed way out at every angle/height the sliders allow
+        for t in 0..200 {
+            let t = t as f64 * 0.5;
+            let (eye, _) = camera_pose(t, DVec3::new(0.0, 0.9, 0.0), 1.2, 3.0, 1.0);
+            assert!((eye.x * eye.x + eye.z * eye.z).sqrt() <= CAM_MAX_XZ + 1e-9, "left the room at t={t}: {eye:?}");
+            assert!(eye.y >= CAM_MIN_Y && eye.y <= CAM_MAX_Y);
+        }
+        let clamped = clamp_to_room(DVec3::new(50.0, 20.0, -50.0));
+        assert!((clamped.x * clamped.x + clamped.z * clamped.z).sqrt() <= CAM_MAX_XZ + 1e-9);
+        assert_eq!(clamped.y, CAM_MAX_Y);
     }
 
     #[test]
