@@ -5,7 +5,7 @@ use bevy::window::Monitor;
 use bevy_egui::{EguiContexts, egui};
 
 use crate::app::{AppSettings, SettingsIo, StartupRenderCfg};
-use crate::bench::{BenchState, LastError};
+use crate::bench::{BenchSession, BenchState, LastError, StartBenchmark};
 use crate::config::{
     self, AaMode, BackendSetting, PowerPrefSetting, PresetId, RESOLUTION_PRESETS, Settings,
     TonemappingSetting, WindowModeSetting,
@@ -26,6 +26,8 @@ pub fn panels_ui(
     monitors: Query<&Monitor>,
     time: Res<Time<Real>>,
     mut exit: MessageWriter<AppExit>,
+    mut start: MessageWriter<StartBenchmark>,
+    mut session: ResMut<BenchSession>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
     if state.get().is_benchmarking() {
@@ -51,7 +53,8 @@ pub fn panels_ui(
                 section(ui, "Display", |ui| display_section(ui, &mut edited, &monitors));
                 section(ui, "Renderer", |ui| renderer_section(ui, &mut edited, &caps));
                 section(ui, "Scene", |ui| scene_section(ui, &mut edited));
-                section(ui, "Benchmark", |ui| benchmark_section(ui, &mut edited));
+                section(ui, "Benchmark", |ui| benchmark_section(ui, &mut edited, &mut start));
+                section(ui, "Results", |ui| crate::ui::results::draw(ui, &mut session));
                 section(ui, "System info", |ui| system_info::draw(ui, &sysinfo, &caps));
 
                 if let Some(e) = &io.last_save_error {
@@ -277,7 +280,7 @@ fn scene_section(ui: &mut egui::Ui, s: &mut Settings) {
     }
 }
 
-fn benchmark_section(ui: &mut egui::Ui, s: &mut Settings) {
+fn benchmark_section(ui: &mut egui::Ui, s: &mut Settings, start: &mut MessageWriter<StartBenchmark>) {
     let before = s.benchmark.preset;
     egui::ComboBox::from_label("Preset")
         .selected_text(format!("{:?}", s.benchmark.preset))
@@ -307,9 +310,9 @@ fn benchmark_section(ui: &mut egui::Ui, s: &mut Settings) {
     ui.checkbox(&mut b.screenshot, "Save final-frame screenshot");
 
     ui.horizontal(|ui| {
-        ui.add_enabled_ui(false, |ui| {
-            let _ = ui.button("▶ Start benchmark").on_disabled_hover_text("Benchmark runner lands in F3");
-        });
+        if ui.button("▶ Start benchmark").clicked() {
+            start.write(StartBenchmark);
+        }
         if ui.button("Open results dir").clicked() {
             let _ = std::fs::create_dir_all(&b.output_dir);
             crate::platform::open_dir(std::path::Path::new(&b.output_dir));

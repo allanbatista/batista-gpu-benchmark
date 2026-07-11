@@ -36,8 +36,9 @@ pub fn run(settings: Settings, run: RunOptions) -> AppExit {
     let mut app = App::new();
 
     // Reduced logging during automated benchmark runs (spec §14/§17).
+    // Benchmark mode: silence engine noise, keep this app's few own lines.
     let log_filter = if run.autostart {
-        "error,batista_gpu_benchmark=warn"
+        "error,batista_gpu_benchmark=info"
     } else {
         "info,wgpu=error,naga=warn,bevy_render=info"
     };
